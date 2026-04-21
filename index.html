@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>重力轴旋转监测</title>
+<title>旋转速度监测 - 花样滑冰</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -23,14 +23,11 @@
   .btn:active { transform: scale(0.96); }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-perm { background: linear-gradient(135deg, #4a90d9, #357abd); }
+  .btn-stop { background: linear-gradient(135deg, #ff6b6b, #e03131); }
   .btn-reset { background: linear-gradient(135deg, #868e96, #495057); }
 
-  .chart-section {
-    width: 100%; max-width: 460px; margin-bottom: 14px;
-  }
-  .chart-header {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
-  }
+  .chart-section { width: 100%; max-width: 460px; margin-bottom: 14px; }
+  .chart-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .chart-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   .chart-title { font-size: 0.8rem; font-weight: 700; }
   .chart-value { margin-left: auto; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -50,8 +47,10 @@
     background: #12122a; border-radius: 10px; padding: 10px;
     border: 1px solid #1e1e40; text-align: center;
   }
+  .info-card.span3 { grid-column: span 3; }
   .info-label { font-size: 0.6rem; color: #8888aa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
   .info-value { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #ccc; }
+  .info-value.big { font-size: 1.8rem; color: #fcc419; }
   .info-value.sm { font-size: 0.9rem; color: #999; }
 
   #status { font-size: 0.78rem; color: #888; text-align: center; margin-top: 4px; max-width: 460px; line-height: 1.4; }
@@ -73,19 +72,28 @@
 </head>
 <body>
 
-<h1>🔄 重力轴旋转监测</h1>
-<div class="subtitle">绕重力方向的旋转角度与角加速度</div>
+<h1>⛸️ 旋转速度监测</h1>
+<div class="subtitle">陀螺仪姿态跟踪 · 绕重力轴旋转 · 适用于花样滑冰</div>
 
 <div class="controls">
   <button class="btn btn-perm" id="permBtn" onclick="requestPermission()">授权传感器</button>
+  <button class="btn btn-stop" id="stopBtn" onclick="stopSession()" style="display:none;">⏹ 停止</button>
   <button class="btn btn-reset" id="resetBtn" onclick="recalibrate()" style="display:none;">↻ 重新校准</button>
+</div>
+
+<!-- Big RPM-style display -->
+<div class="info-row">
+  <div class="info-card span3">
+    <div class="info-label">当前转速 (圈/秒)</div>
+    <div class="info-value big" id="valRPS">0.00</div>
+  </div>
 </div>
 
 <!-- Chart 1: Yaw Angle -->
 <div class="chart-section">
   <div class="chart-header">
     <div class="chart-dot" style="background:#7eb8ff;"></div>
-    <div class="chart-title" style="color:#7eb8ff;">旋转角度 (°)</div>
+    <div class="chart-title" style="color:#7eb8ff;">累计旋转角度 (°)</div>
     <div class="chart-value" style="color:#7eb8ff;" id="valAngle">0.0°</div>
   </div>
   <div class="chart-container">
@@ -93,26 +101,41 @@
   </div>
 </div>
 
-<!-- Chart 2: Angular Acceleration -->
+<!-- Chart 2: Angular Velocity -->
 <div class="chart-section">
   <div class="chart-header">
     <div class="chart-dot" style="background:#ff6b6b;"></div>
-    <div class="chart-title" style="color:#ff6b6b;">角加速度 (°/s²)</div>
-    <div class="chart-value" style="color:#ff6b6b;" id="valAccel">0.0</div>
+    <div class="chart-title" style="color:#ff6b6b;">角速度 (°/s)</div>
+    <div class="chart-value" style="color:#ff6b6b;" id="valRate">0.0</div>
   </div>
   <div class="chart-container">
-    <canvas id="chartAccel"></canvas>
+    <canvas id="chartRate"></canvas>
   </div>
 </div>
 
 <div class="info-row">
   <div class="info-card">
-    <div class="info-label">当前角速度 (°/s)</div>
-    <div class="info-value" id="valRate">0.0</div>
+    <div class="info-label">峰值角速度 (°/s)</div>
+    <div class="info-value" id="peakRate">0.0</div>
   </div>
   <div class="info-card">
-    <div class="info-label">峰值角速度</div>
-    <div class="info-value sm" id="peakRate">0.0</div>
+    <div class="info-label">峰值转速 (圈/秒)</div>
+    <div class="info-value" id="peakRPS">0.00</div>
+  </div>
+  <div class="info-card">
+    <div class="info-label">总圈数</div>
+    <div class="info-value" id="totalRevs">0.00</div>
+  </div>
+</div>
+
+<div class="info-row">
+  <div class="info-card">
+    <div class="info-label">角加速度 (°/s²)</div>
+    <div class="info-value sm" id="valAccel">0.0</div>
+  </div>
+  <div class="info-card">
+    <div class="info-label">记录时间</div>
+    <div class="info-value sm" id="elapsed">0.0s</div>
   </div>
   <div class="info-card">
     <div class="info-label">|g| 校验</div>
@@ -127,8 +150,9 @@
   <div class="cal-icon">📐</div>
   <div class="cal-title">重力方向校准</div>
   <div class="cal-desc">
-    请将手机保持静止 3 秒。<br><br>
-    任意姿态均可，只要不动就行。
+    请将手机<em>固定在运动员身上</em>后，保持静止 3 秒。<br><br>
+    手机可以任意朝向，只要不动即可。<br>
+    校准后手机姿态变化会由陀螺仪自动跟踪。
   </div>
   <div class="cal-bar"><div class="cal-fill" id="calFill"></div></div>
   <div class="cal-status" id="calStatus">正在采集...</div>
@@ -138,55 +162,112 @@
 // ============ CONFIG ============
 const CAL_DURATION = 3000;
 const CAL_MIN_SAMPLES = 50;
-const SAMPLE_INTERVAL = 50; // 20fps
-const CHART_SECONDS = 10;
+const SAMPLE_INTERVAL = 50;
+const CHART_SECONDS = 15;
 const GRAV_LP = 0.97;
+const DEG2RAD = Math.PI / 180;
+const RAD2DEG = 180 / Math.PI;
+
+// ============ WAKE LOCK ============
+let wakeLock = null;
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    }
+  } catch (e) {}
+}
+function releaseWakeLock() { if (wakeLock) { wakeLock.release(); wakeLock = null; } }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && running) requestWakeLock();
+});
+
+// ============ QUATERNION MATH ============
+// Quaternion: [w, x, y, z]
+function qMul(a, b) {
+  return [
+    a[0]*b[0] - a[1]*b[1] - a[2]*b[2] - a[3]*b[3],
+    a[0]*b[1] + a[1]*b[0] + a[2]*b[3] - a[3]*b[2],
+    a[0]*b[2] - a[1]*b[3] + a[2]*b[0] + a[3]*b[1],
+    a[0]*b[3] + a[1]*b[2] - a[2]*b[1] + a[3]*b[0]
+  ];
+}
+
+function qNormalize(q) {
+  const len = Math.sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
+  if (len < 1e-10) return [1, 0, 0, 0];
+  return [q[0]/len, q[1]/len, q[2]/len, q[3]/len];
+}
+
+function qConjugate(q) {
+  return [q[0], -q[1], -q[2], -q[3]];
+}
+
+// Rotate vector v=[x,y,z] by quaternion q
+function qRotateVec(q, v) {
+  const qv = [0, v[0], v[1], v[2]];
+  const r = qMul(qMul(q, qv), qConjugate(q));
+  return [r[1], r[2], r[3]];
+}
 
 // ============ STATE ============
 let permissionGranted = false;
 let calibrated = false;
 let calibrating = false;
+let running = false;
 
 let calStartTime = 0;
 let calAccelSamples = [];
 
-// Gravity unit vector in device frame
-let gUnitX = 0, gUnitY = 0, gUnitZ = 1;
+// Gravity in WORLD frame (fixed, always [0, gx, gy, gz] normalized)
+// After calibration, world gravity = the direction measured at rest
+// We track: gravity in DEVICE frame = qConj * worldGrav * q
+// But simpler: we store gravity in device frame and rotate it each step
 
-// Continuous gravity LP
+// Gravity unit vector in device frame (updated every gyro step)
+let gDevX = 0, gDevY = 0, gDevZ = 1;
+
+// Attitude quaternion: rotates from calibration-frame to current-device-frame
+// Starts as identity
+let attQ = [1, 0, 0, 0];
+
+// Continuous gravity LP for |g| display only
 let gravX = 0, gravY = 0, gravZ = 9.8;
 let gravInited = false;
 
 // Yaw tracking
-let yawAngle = 0;         // integrated angle (°)
-let yawRate = 0;           // current angular velocity (°/s)
-let yawAccel = 0;          // angular acceleration (°/s²)
-let prevYawRate = 0;       // for computing angular acceleration
+let yawAngle = 0;
+let yawRate = 0;
+let yawRateSmooth = 0;
+let yawAccel = 0;
+let prevYawRate = 0;
 let lastMotionTime = null;
 let peakRate = 0;
+let sessionStartTime = 0;
 
 // Chart data
 let dataAngle = [];
-let dataAccel = [];
+let dataRate = [];
 let chartStartTime = 0;
 let sampleTimer = null;
 
 // Canvas
 const cvAngle = document.getElementById('chartAngle');
 const ctxAngle = cvAngle.getContext('2d');
-const cvAccel = document.getElementById('chartAccel');
-const ctxAccel = cvAccel.getContext('2d');
+const cvRate = document.getElementById('chartRate');
+const ctxRate = cvRate.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
 
 function resizeCanvas() {
-  [cvAngle, cvAccel].forEach(cv => {
+  [cvAngle, cvRate].forEach(cv => {
     const rect = cv.parentElement.getBoundingClientRect();
     cv.width = rect.width * dpr;
     cv.height = rect.height * dpr;
     cv.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
   });
   drawChart(ctxAngle, cvAngle, dataAngle, '#7eb8ff', '°');
-  drawChart(ctxAccel, cvAccel, dataAccel, '#ff6b6b', '°/s²');
+  drawChart(ctxRate, cvRate, dataRate, '#ff6b6b', '°/s');
 }
 window.addEventListener('resize', resizeCanvas);
 
@@ -194,17 +275,16 @@ window.addEventListener('resize', resizeCanvas);
 function handleMotion(e) {
   const now = performance.now();
 
+  // Gravity LP for display only
   const agx = e.accelerationIncludingGravity?.x || 0;
   const agy = e.accelerationIncludingGravity?.y || 0;
   const agz = e.accelerationIncludingGravity?.z || 0;
-
   if (!gravInited) { gravX = agx; gravY = agy; gravZ = agz; gravInited = true; }
   else {
     gravX = GRAV_LP * gravX + (1 - GRAV_LP) * agx;
     gravY = GRAV_LP * gravY + (1 - GRAV_LP) * agy;
     gravZ = GRAV_LP * gravZ + (1 - GRAV_LP) * agz;
   }
-
   const gMag = Math.sqrt(gravX*gravX + gravY*gravY + gravZ*gravZ);
   document.getElementById('gCheck').textContent = gMag.toFixed(2);
 
@@ -218,81 +298,120 @@ function handleMotion(e) {
     return;
   }
 
-  if (!calibrated) return;
+  if (!calibrated || !running) return;
 
-  // Gyro: project rotationRate onto gravity axis
-  // iOS mapping: ω = (rr.alpha, rr.beta, rr.gamma) → device (X, Y, Z)
   const rr = e.rotationRate;
   if (!rr) return;
 
-  const wx = rr.alpha || 0;
-  const wy = rr.beta  || 0;
-  const wz = rr.gamma || 0;
+  if (lastMotionTime === null) { lastMotionTime = now; return; }
+  const dt = (now - lastMotionTime) / 1000;
+  lastMotionTime = now;
+  if (dt <= 0 || dt > 0.5) return;
 
-  // Yaw rate = ω · ĝ
-  const rawYawRate = wx * gUnitX + wy * gUnitY + wz * gUnitZ;
+  // iOS mapping: ω = (alpha, beta, gamma) → device (X, Y, Z) in °/s
+  const wx = (rr.alpha || 0) * DEG2RAD; // rad/s
+  const wy = (rr.beta  || 0) * DEG2RAD;
+  const wz = (rr.gamma || 0) * DEG2RAD;
 
-  // Smooth yaw rate for display
-  yawRate = yawRate * 0.7 + rawYawRate * 0.3;
+  // ====== Update attitude quaternion ======
+  // Small rotation quaternion: dq = [cos(|ω|dt/2), sin(|ω|dt/2) * ω̂]
+  const wMag = Math.sqrt(wx*wx + wy*wy + wz*wz);
+  if (wMag > 1e-8) {
+    const halfAngle = wMag * dt / 2;
+    const s = Math.sin(halfAngle) / wMag;
+    const dq = [Math.cos(halfAngle), wx * s, wy * s, wz * s];
+    // New attitude: q = q * dq (device rotated by dq)
+    attQ = qNormalize(qMul(attQ, dq));
+  }
+
+  // ====== Update gravity in device frame ======
+  // At calibration, gravity in device frame was gDev_cal = (gDevX0, gDevY0, gDevZ0)
+  // As device rotates by attQ from calibration frame:
+  //   gDev_now = qConj(attQ) * gDev_cal * attQ
+  // But we stored gDev_cal as the initial gravity, and attQ starts as identity
+  // So: gDev_now = rotate gDev_initial by inverse of accumulated rotation
+  const gWorld = [gDevX0, gDevY0, gDevZ0]; // gravity in calibration device frame = "world"
+  const qInv = qConjugate(attQ);
+  const gNow = qRotateVec(qInv, gWorld);
+  gDevX = gNow[0]; gDevY = gNow[1]; gDevZ = gNow[2];
+
+  // Normalize (should already be unit, but safety)
+  const gLen = Math.sqrt(gDevX*gDevX + gDevY*gDevY + gDevZ*gDevZ);
+  if (gLen > 0.01) { gDevX /= gLen; gDevY /= gLen; gDevZ /= gLen; }
+
+  // ====== Project angular velocity onto gravity axis ======
+  // ω in device frame (°/s, not rad/s for projection result)
+  const wxDeg = rr.alpha || 0;
+  const wyDeg = rr.beta  || 0;
+  const wzDeg = rr.gamma || 0;
+
+  const rawYawRate = wxDeg * gDevX + wyDeg * gDevY + wzDeg * gDevZ;
+
+  // Smooth for display
+  yawRateSmooth = yawRateSmooth * 0.7 + rawYawRate * 0.3;
+  yawRate = rawYawRate;
 
   // Integrate angle
-  if (lastMotionTime !== null) {
-    const dt = (now - lastMotionTime) / 1000;
-    if (dt > 0 && dt < 0.5) {
-      yawAngle += rawYawRate * dt;
+  yawAngle += rawYawRate * dt;
 
-      // Angular acceleration = d(yawRate)/dt
-      yawAccel = (rawYawRate - prevYawRate) / dt;
-    }
-  }
-  lastMotionTime = now;
+  // Angular acceleration
+  yawAccel = (rawYawRate - prevYawRate) / dt;
   prevYawRate = rawYawRate;
 
-  // Peak
-  if (Math.abs(yawRate) > peakRate) peakRate = Math.abs(yawRate);
+  // Peaks
+  const absRate = Math.abs(yawRateSmooth);
+  if (absRate > peakRate) peakRate = absRate;
 
   // Update display
+  const rps = yawRateSmooth / 360;
+  const elapsed = (now - sessionStartTime) / 1000;
   document.getElementById('valAngle').textContent = yawAngle.toFixed(1) + '°';
-  document.getElementById('valAccel').textContent = yawAccel.toFixed(1);
-  document.getElementById('valRate').textContent = yawRate.toFixed(1);
+  document.getElementById('valRate').textContent = yawRateSmooth.toFixed(1);
+  document.getElementById('valRPS').textContent = Math.abs(rps).toFixed(2);
+  document.getElementById('valAccel').textContent = yawAccel.toFixed(0);
   document.getElementById('peakRate').textContent = peakRate.toFixed(1);
+  document.getElementById('peakRPS').textContent = (peakRate / 360).toFixed(2);
+  document.getElementById('totalRevs').textContent = (Math.abs(yawAngle) / 360).toFixed(2);
+  const min = Math.floor(elapsed / 60);
+  const sec = (elapsed % 60).toFixed(0);
+  document.getElementById('elapsed').textContent = min > 0 ? `${min}分${sec}秒` : `${sec}s`;
 }
+
+// Initial gravity in device frame (set during calibration, never changes)
+let gDevX0 = 0, gDevY0 = 0, gDevZ0 = 1;
 
 // ============ CHART ============
 function startSampling() {
   chartStartTime = performance.now();
-  dataAngle = []; dataAccel = [];
+  dataAngle = []; dataRate = [];
   sampleTimer = setInterval(() => {
     const t = (performance.now() - chartStartTime) / 1000;
     dataAngle.push({ t, v: yawAngle });
-    // Smooth angular acceleration for chart
-    const smoothAccel = yawAccel;
-    dataAccel.push({ t, v: smoothAccel });
+    dataRate.push({ t, v: yawRateSmooth });
     const maxSamples = Math.ceil(CHART_SECONDS / (SAMPLE_INTERVAL / 1000)) + 20;
     if (dataAngle.length > maxSamples) dataAngle.shift();
-    if (dataAccel.length > maxSamples) dataAccel.shift();
+    if (dataRate.length > maxSamples) dataRate.shift();
     drawChart(ctxAngle, cvAngle, dataAngle, '#7eb8ff', '°');
-    drawChart(ctxAccel, cvAccel, dataAccel, '#ff6b6b', '°/s²');
+    drawChart(ctxRate, cvRate, dataRate, '#ff6b6b', '°/s');
   }, SAMPLE_INTERVAL);
+  requestWakeLock();
 }
 
 function stopSampling() {
   if (sampleTimer) { clearInterval(sampleTimer); sampleTimer = null; }
+  releaseWakeLock();
 }
 
 function drawChart(ctx, canvas, data, color, unit) {
   const w = canvas.width / dpr, h = canvas.height / dpr;
-  const pad = { top: 14, right: 12, bottom: 26, left: 44 };
+  const pad = { top: 14, right: 12, bottom: 26, left: 48 };
   const cw = w - pad.left - pad.right, ch = h - pad.top - pad.bottom;
 
   ctx.clearRect(0, 0, w, h);
 
-  // Auto Y range
   let maxAbs = 5;
   for (const d of data) { const a = Math.abs(d.v); if (a > maxAbs) maxAbs = a; }
-  const yRange = unit === '°'
-    ? Math.max(10, Math.ceil(maxAbs / 10) * 10 + 5)
-    : Math.max(5, Math.ceil(maxAbs / 5) * 5 + 5);
+  const yRange = Math.max(5, Math.ceil(maxAbs * 1.15));
 
   const now = data.length > 0 ? data[data.length - 1].t : 0;
   const tMin = now - CHART_SECONDS, tMax = now;
@@ -300,13 +419,18 @@ function drawChart(ctx, canvas, data, color, unit) {
   function xP(t) { return pad.left + ((t - tMin) / (tMax - tMin)) * cw; }
   function yP(v) { return pad.top + ch / 2 - (v / yRange) * (ch / 2); }
 
-  // Background
-  ctx.fillStyle = '#0a0a18';
-  ctx.fillRect(pad.left, pad.top, cw, ch);
+  ctx.fillStyle = '#0a0a18'; ctx.fillRect(pad.left, pad.top, cw, ch);
+
+  // Dynamic Y step
+  const minPxBetween = 40;
+  const maxLabels = Math.floor(ch / minPxBetween);
+  const rawStep = (yRange * 2) / Math.max(maxLabels, 1);
+  const niceSteps = [1, 2, 5, 10, 15, 20, 25, 30, 50, 100, 150, 200, 300, 500, 1000, 2000, 5000];
+  let yStep = niceSteps[niceSteps.length - 1];
+  for (const ns of niceSteps) { if (ns >= rawStep) { yStep = ns; break; } }
 
   // H grid
   ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 0.5;
-  const yStep = yRange <= 10 ? 5 : yRange <= 30 ? 10 : yRange <= 90 ? 15 : yRange <= 180 ? 30 : 45;
   for (let a = -yRange; a <= yRange; a += yStep) {
     const y = yP(a); if (y < pad.top || y > pad.top + ch) continue;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + cw, y); ctx.stroke();
@@ -342,7 +466,6 @@ function drawChart(ctx, canvas, data, color, unit) {
     ctx.fillText(t.toFixed(0) + 's', x, pad.top + ch + 4);
   }
 
-  // Axis labels
   ctx.fillStyle = '#444'; ctx.font = '8px -apple-system,sans-serif'; ctx.textAlign = 'center';
   ctx.fillText('时间 (秒)', pad.left + cw / 2, h - 2);
   ctx.save(); ctx.translate(8, pad.top + ch / 2); ctx.rotate(-Math.PI / 2);
@@ -350,12 +473,10 @@ function drawChart(ctx, canvas, data, color, unit) {
 
   if (data.length < 2) return;
 
-  // Clip
   ctx.save(); ctx.beginPath(); ctx.rect(pad.left, pad.top, cw, ch); ctx.clip();
 
-  // Fill under curve
-  ctx.beginPath();
-  let started = false;
+  // Fill
+  ctx.beginPath(); let started = false;
   for (const d of data) {
     if (d.t < tMin) continue;
     const x = xP(d.t), y = yP(d.v);
@@ -363,11 +484,8 @@ function drawChart(ctx, canvas, data, color, unit) {
     else ctx.lineTo(x, y);
   }
   if (started) {
-    ctx.lineTo(xP(data[data.length - 1].t), zeroY);
-    ctx.closePath();
-    // Parse color for fill
-    ctx.fillStyle = color + '0f';
-    ctx.fill();
+    ctx.lineTo(xP(data[data.length - 1].t), zeroY); ctx.closePath();
+    ctx.fillStyle = color + '0f'; ctx.fill();
   }
 
   // Line
@@ -379,34 +497,28 @@ function drawChart(ctx, canvas, data, color, unit) {
   }
   ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke();
 
-  // End dot with glow
+  // End dot
   const last = data[data.length - 1];
   const lx = xP(last.t), ly = yP(last.v);
   const glow = ctx.createRadialGradient(lx, ly, 0, lx, ly, 10);
-  glow.addColorStop(0, color + '66');
-  glow.addColorStop(1, color + '00');
+  glow.addColorStop(0, color + '66'); glow.addColorStop(1, color + '00');
   ctx.fillStyle = glow;
   ctx.beginPath(); ctx.arc(lx, ly, 10, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = color;
   ctx.beginPath(); ctx.arc(lx, ly, 3.5, 0, Math.PI * 2); ctx.fill();
 
-  // Value label at dot
   ctx.fillStyle = '#bbb'; ctx.font = 'bold 10px -apple-system,sans-serif';
   ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
   ctx.fillText(last.v.toFixed(1), lx + 8, ly - 4);
 
   ctx.restore();
-
-  // Border
   ctx.strokeStyle = '#1e1e40'; ctx.lineWidth = 1;
   ctx.strokeRect(pad.left, pad.top, cw, ch);
 }
 
 // ============ CALIBRATION ============
 function startCalibration() {
-  calibrating = true;
-  calStartTime = performance.now();
-  calAccelSamples = [];
+  calibrating = true; calStartTime = performance.now(); calAccelSamples = [];
   document.getElementById('calOverlay').classList.remove('hidden');
   document.getElementById('calFill').style.width = '0%';
 }
@@ -431,33 +543,54 @@ function finishCalibration() {
     return;
   }
 
-  gUnitX = avgX / mag;
-  gUnitY = avgY / mag;
-  gUnitZ = avgZ / mag;
-  gravX = avgX; gravY = avgY; gravZ = avgZ;
+  // Store initial gravity in device frame (this is our "world" reference)
+  gDevX0 = avgX / mag; gDevY0 = avgY / mag; gDevZ0 = avgZ / mag;
+  // Current gravity = initial (attitude is identity)
+  gDevX = gDevX0; gDevY = gDevY0; gDevZ = gDevZ0;
 
-  yawAngle = 0; yawRate = 0; yawAccel = 0;
+  // Reset attitude quaternion to identity
+  attQ = [1, 0, 0, 0];
+
+  yawAngle = 0; yawRate = 0; yawRateSmooth = 0; yawAccel = 0;
   prevYawRate = 0; lastMotionTime = null; peakRate = 0;
 
-  calibrated = true;
-  document.getElementById('resetBtn').style.display = '';
-  document.getElementById('status').textContent =
-    `✅ 校准完成！ĝ=(${gUnitX.toFixed(2)}, ${gUnitY.toFixed(2)}, ${gUnitZ.toFixed(2)})。转动手机查看变化。`;
+  calibrated = true; running = true;
+  sessionStartTime = performance.now();
+
+  document.getElementById('stopBtn').style.display = '';
+  document.getElementById('resetBtn').style.display = 'none';
+  document.getElementById('status').textContent = '✅ 校准完成！开始运动吧！';
 
   startSampling();
 }
 
+function stopSession() {
+  running = false; stopSampling();
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('resetBtn').style.display = '';
+  const elapsed = ((performance.now() - sessionStartTime) / 1000).toFixed(1);
+  document.getElementById('status').textContent =
+    `⏹ 已停止。记录 ${elapsed}s，峰值转速 ${(peakRate/360).toFixed(2)} 圈/秒，总圈数 ${(Math.abs(yawAngle)/360).toFixed(2)}`;
+}
+
 function recalibrate() {
-  stopSampling(); calibrated = false;
-  yawAngle = 0; yawRate = 0; yawAccel = 0;
+  stopSampling(); calibrated = false; running = false;
+  attQ = [1, 0, 0, 0];
+  yawAngle = 0; yawRate = 0; yawRateSmooth = 0; yawAccel = 0;
   prevYawRate = 0; lastMotionTime = null; peakRate = 0;
-  dataAngle = []; dataAccel = [];
+  dataAngle = []; dataRate = [];
   document.getElementById('valAngle').textContent = '0.0°';
-  document.getElementById('valAccel').textContent = '0.0';
   document.getElementById('valRate').textContent = '0.0';
+  document.getElementById('valRPS').textContent = '0.00';
+  document.getElementById('valAccel').textContent = '0.0';
   document.getElementById('peakRate').textContent = '0.0';
+  document.getElementById('peakRPS').textContent = '0.00';
+  document.getElementById('totalRevs').textContent = '0.00';
+  document.getElementById('elapsed').textContent = '0.0s';
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('resetBtn').style.display = 'none';
   drawChart(ctxAngle, cvAngle, dataAngle, '#7eb8ff', '°');
-  drawChart(ctxAccel, cvAccel, dataAccel, '#ff6b6b', '°/s²');
+  drawChart(ctxRate, cvRate, dataRate, '#ff6b6b', '°/s');
   startCalibration();
 }
 
